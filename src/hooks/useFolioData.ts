@@ -32,12 +32,12 @@ export type EvidenceDay = {
 
   householdTx: number;
   householdNet: number;
-  householdItems: EvidenceItem[]; // raw-ish items (limited)
+  householdItems: EvidenceItem[]; // limited
 
   cardTx: number;
   cardSpend: number;
   cardByBucket: Record<ThreadBucket, number>;
-  cardItems: EvidenceItem[]; // raw-ish items (limited)
+  cardItems: EvidenceItem[]; // limited
   fraudCount: number;
 };
 
@@ -79,9 +79,9 @@ export type FolioSummary = {
       spotifyPlays: number;
       householdTx: number;
       cardTx: number;
-      householdNet: number;
+      householdNet: number; // income - expense (can be negative)
       cardSpend: number;
-      score: number;
+      score: number; // ranking score
     }[];
   };
 
@@ -189,124 +189,7 @@ function buildSummary(
   fraudCountFromLoader: number
 ): FolioSummary {
   // ─────────────────────────────
-  // SPOTIFY AGGREGATES
-  // ─────────────────────────────
-  const artistPlays = new Map<string, number>();
-  const hourPlays = new Array<number>(24).fill(0);
-
-  let spotifyParsed = 0;
-  let spotifyMin: Date | null = null;
-  let spotifyMax: Date | null = null;
-  let spotifySkipped = 0;
-
-  for (const r of spotifyRows) {
-    const d = parseDateLoose(r.ts);
-    if (!d) continue;
-
-    spotifyParsed++;
-    if (!spotifyMin || d < spotifyMin) spotifyMin = d;
-    if (!spotifyMax || d > spotifyMax) spotifyMax = d;
-
-    hourPlays[d.getHours()] += 1;
-    if (isTrue(r.skipped)) spotifySkipped += 1;
-
-    const artist = (r.artist_name || "Unknown").trim();
-    artistPlays.set(artist, (artistPlays.get(artist) || 0) + 1);
-  }
-
-  const topArtists = [...artistPlays.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 8)
-    .map(([name, plays]) => ({ name, plays }));
-
-  let peakHour = { hour: 0, plays: hourPlays[0] };
-  for (let h = 1; h < 24; h++) {
-    if (hourPlays[h] > peakHour.plays) peakHour = { hour: h, plays: hourPlays[h] };
-  }
-
-  const skipRate = spotifyParsed ? spotifySkipped / spotifyParsed : 0;
-
-  // ─────────────────────────────
-  // HOUSEHOLD AGGREGATES
-  // ─────────────────────────────
-  let hhParsed = 0;
-  let hhMin: Date | null = null;
-  let hhMax: Date | null = null;
-
-  const hhCatTotals = new Map<string, number>();
-  let expenseTotal = 0;
-  let incomeTotal = 0;
-
-  for (const r of householdRows) {
-    const d = parseDateLoose(r.Date);
-    if (!d) continue;
-
-    hhParsed++;
-    if (!hhMin || d < hhMin) hhMin = d;
-    if (!hhMax || d > hhMax) hhMax = d;
-
-    const amt = safeNum(r.Amount);
-    const flow = String(r["Income/Expense"] ?? "").trim().toLowerCase();
-    const cat = (r.Category || "Uncategorized").trim();
-
-    if (flow.includes("expense")) expenseTotal += amt;
-    else if (flow.includes("income")) incomeTotal += amt;
-
-    hhCatTotals.set(cat, (hhCatTotals.get(cat) || 0) + amt);
-  }
-
-  const hhTopCategories = [...hhCatTotals.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 8)
-    .map(([name, total]) => ({ name, total: Number(total.toFixed(2)) }));
-
-  // ─────────────────────────────
-  // CARD AGGREGATES
-  // ─────────────────────────────
-  let ccParsed = 0;
-  let ccMin: Date | null = null;
-  let ccMax: Date | null = null;
-
-  const ccCatTotals = new Map<string, number>();
-  const merchantCounts = new Map<string, number>();
-  let maxAmt = 0;
-  let fraudCount = 0;
-
-  for (const r of cardRows) {
-    const d = parseDateLoose(r.trans_date_trans_time);
-    if (!d) continue;
-
-    ccParsed++;
-    if (!ccMin || d < ccMin) ccMin = d;
-    if (!ccMax || d > ccMax) ccMax = d;
-
-    const amt = safeNum(r.amt);
-    if (amt > maxAmt) maxAmt = amt;
-
-    const cat = (r.category || "Uncategorized").trim();
-    ccCatTotals.set(cat, (ccCatTotals.get(cat) || 0) + amt);
-
-    const merchant = (r.merchant || "Unknown merchant").trim();
-    merchantCounts.set(merchant, (merchantCounts.get(merchant) || 0) + 1);
-
-    if (Number(String(r.is_fraud ?? "").trim()) === 1) fraudCount += 1;
-  }
-
-  // trust computed fraud count, else fallback to loader meta
-  if (!fraudCount && fraudCountFromLoader) fraudCount = fraudCountFromLoader;
-
-  const ccTopCategories = [...ccCatTotals.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 8)
-    .map(([name, total]) => ({ name, total: Number(total.toFixed(2)) }));
-
-  const ccTopMerchants = [...merchantCounts.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 6)
-    .map(([name, count]) => ({ name, count }));
-
-  // ─────────────────────────────
-  // DAILY INDEX (CONNECTION ENGINE)
+  // DAILY MAP (shared)
   // ─────────────────────────────
   const dayMap = new Map<
     string,
@@ -334,36 +217,164 @@ function buildSummary(
     return cur;
   };
 
-  for (const r of spotifyRows) {
+  // ─────────────────────────────
+  // CACHE ARRAYS (performance)
+  // ─────────────────────────────
+  const spDay: (string | null)[] = new Array(spotifyRows.length).fill(null);
+  const spBucket: (ThreadBucket | null)[] = new Array(spotifyRows.length).fill(null);
+
+  const ccDay: (string | null)[] = new Array(cardRows.length).fill(null);
+  const ccBucket: (ThreadBucket | null)[] = new Array(cardRows.length).fill(null);
+  const ccTime: (string | null)[] = new Array(cardRows.length).fill(null);
+
+  // ─────────────────────────────
+  // SPOTIFY AGGREGATES (single pass + daily map)
+  // ─────────────────────────────
+  const artistPlays = new Map<string, number>();
+  const hourPlays = new Array<number>(24).fill(0);
+
+  let spotifyParsed = 0;
+  let spotifyMin: Date | null = null;
+  let spotifyMax: Date | null = null;
+  let spotifySkipped = 0;
+
+  for (let i = 0; i < spotifyRows.length; i++) {
+    const r = spotifyRows[i];
     const d = parseDateLoose(r.ts);
     if (!d) continue;
-    bump(dayKey(d)).spotifyPlays += 1;
+
+    spotifyParsed++;
+    if (!spotifyMin || d < spotifyMin) spotifyMin = d;
+    if (!spotifyMax || d > spotifyMax) spotifyMax = d;
+
+    const dk = dayKey(d);
+    const b = bucketFromHour(d.getHours());
+    spDay[i] = dk;
+    spBucket[i] = b;
+
+    hourPlays[d.getHours()] += 1;
+    if (isTrue(r.skipped)) spotifySkipped += 1;
+
+    const artist = (r.artist_name || "Unknown").trim();
+    artistPlays.set(artist, (artistPlays.get(artist) || 0) + 1);
+
+    // daily index bump
+    bump(dk).spotifyPlays += 1;
   }
 
-  for (const r of householdRows) {
+  const topArtists = [...artistPlays.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8)
+    .map(([name, plays]) => ({ name, plays }));
+
+  let peakHour = { hour: 0, plays: hourPlays[0] };
+  for (let h = 1; h < 24; h++) {
+    if (hourPlays[h] > peakHour.plays) peakHour = { hour: h, plays: hourPlays[h] };
+  }
+
+  const skipRate = spotifyParsed ? spotifySkipped / spotifyParsed : 0;
+
+  // ─────────────────────────────
+  // HOUSEHOLD AGGREGATES (single pass + daily map)
+  // ─────────────────────────────
+  let hhParsed = 0;
+  let hhMin: Date | null = null;
+  let hhMax: Date | null = null;
+
+  const hhCatTotals = new Map<string, number>();
+  let expenseTotal = 0;
+  let incomeTotal = 0;
+
+  for (let i = 0; i < householdRows.length; i++) {
+    const r = householdRows[i];
     const d = parseDateLoose(r.Date);
     if (!d) continue;
 
+    hhParsed++;
+    if (!hhMin || d < hhMin) hhMin = d;
+    if (!hhMax || d > hhMax) hhMax = d;
+
+    const dk = dayKey(d);
     const amt = safeNum(r.Amount);
     const flow = String(r["Income/Expense"] ?? "").trim().toLowerCase();
-    const slot = bump(dayKey(d));
+    const cat = (r.Category || "Uncategorized").trim();
 
+    if (flow.includes("expense")) expenseTotal += amt;
+    else if (flow.includes("income")) incomeTotal += amt;
+
+    hhCatTotals.set(cat, (hhCatTotals.get(cat) || 0) + amt);
+
+    // daily index bump
+    const slot = bump(dk);
     slot.householdTx += 1;
     if (flow.includes("income")) slot.householdNet += amt;
     else if (flow.includes("expense")) slot.householdNet -= amt;
   }
 
-  for (const r of cardRows) {
+  const hhTopCategories = [...hhCatTotals.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8)
+    .map(([name, total]) => ({ name, total: Number(total.toFixed(2)) }));
+
+  // ─────────────────────────────
+  // CARD AGGREGATES (single pass + daily map + cache)
+  // ─────────────────────────────
+  let ccParsed = 0;
+  let ccMin: Date | null = null;
+  let ccMax: Date | null = null;
+
+  const ccCatTotals = new Map<string, number>();
+  const merchantCounts = new Map<string, number>();
+  let maxAmt = 0;
+  let fraudCount = 0;
+
+  for (let i = 0; i < cardRows.length; i++) {
+    const r = cardRows[i];
     const d = parseDateLoose(r.trans_date_trans_time);
     if (!d) continue;
 
-    const amt = safeNum(r.amt);
-    const slot = bump(dayKey(d));
+    ccParsed++;
+    if (!ccMin || d < ccMin) ccMin = d;
+    if (!ccMax || d > ccMax) ccMax = d;
 
+    const dk = dayKey(d);
+    const b = bucketFromHour(d.getHours());
+    ccDay[i] = dk;
+    ccBucket[i] = b;
+    ccTime[i] = `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+
+    const amt = safeNum(r.amt);
+    if (amt > maxAmt) maxAmt = amt;
+
+    const cat = (r.category || "Uncategorized").trim();
+    ccCatTotals.set(cat, (ccCatTotals.get(cat) || 0) + amt);
+
+    const merchant = (r.merchant || "Unknown merchant").trim();
+    merchantCounts.set(merchant, (merchantCounts.get(merchant) || 0) + 1);
+
+    if (Number(String(r.is_fraud ?? "").trim()) === 1) fraudCount += 1;
+
+    // daily index bump
+    const slot = bump(dk);
     slot.cardTx += 1;
     slot.cardSpend += amt;
   }
 
+  if (!fraudCount && fraudCountFromLoader) fraudCount = fraudCountFromLoader;
+
+  const ccTopCategories = [...ccCatTotals.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8)
+    .map(([name, total]) => ({ name, total: Number(total.toFixed(2)) }));
+
+  const ccTopMerchants = [...merchantCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6)
+    .map(([name, count]) => ({ name, count }));
+
+  // ─────────────────────────────
+  // SCORE DAYS
+  // ─────────────────────────────
   const daysUnscored = [...dayMap.values()].map((x) => {
     const streamsPresent =
       (x.spotifyPlays > 0 ? 1 : 0) + (x.householdTx > 0 ? 1 : 0) + (x.cardTx > 0 ? 1 : 0);
@@ -389,12 +400,11 @@ function buildSummary(
   const p90AbsHouseholdNet = percentile90(days.map((d) => Math.abs(d.householdNet)));
 
   // ─────────────────────────────
-  // EVIDENCE FOR TOP DAYS ONLY (fast UX)
+  // EVIDENCE FOR TOP DAYS ONLY
   // ─────────────────────────────
   const topDayKeys = new Set(days.slice(0, 60).map((d) => d.date));
   const evidenceByDay: Record<string, EvidenceDay> = {};
 
-  // init
   for (const k of topDayKeys) {
     evidenceByDay[k] = {
       date: k,
@@ -416,29 +426,27 @@ function buildSummary(
     };
   }
 
-  // Spotify (aggregate top tracks per day)
+  // Spotify evidence: aggregate top tracks per day (NO date parsing here)
   const trackAgg: Record<string, Map<string, { plays: number; skipped: number; bucket: ThreadBucket }>> = {};
   for (const k of topDayKeys) trackAgg[k] = new Map();
 
   for (let i = 0; i < spotifyRows.length; i++) {
-    const r = spotifyRows[i];
-    const d = parseDateLoose(r.ts);
-    if (!d) continue;
-    const dk = dayKey(d);
+    const dk = spDay[i];
+    const b = spBucket[i];
+    if (!dk || !b) continue;
     if (!topDayKeys.has(dk)) continue;
 
+    const r = spotifyRows[i];
     const ev = evidenceByDay[dk];
-    ev.spotifyPlays += 1;
 
-    const h = d.getHours();
-    const b = bucketFromHour(h);
+    ev.spotifyPlays += 1;
     ev.spotifyByBucket[b] += 1;
 
     const key = `${r.track_name} — ${r.artist_name}`;
     const a = trackAgg[dk].get(key) ?? { plays: 0, skipped: 0, bucket: b };
     a.plays += 1;
     if (isTrue(r.skipped)) a.skipped += 1;
-    a.bucket = b; // keep latest bucket as representative
+    a.bucket = b;
     trackAgg[dk].set(key, a);
   }
 
@@ -454,7 +462,10 @@ function buildSummary(
           bucket: info.bucket,
           timeLabel: "—",
           title: track ?? title,
-          meta: `${artist ?? ""}`.trim() + ` · ${info.plays} plays` + (info.skipped ? ` · ${info.skipped} skipped` : ""),
+          meta:
+            `${artist ?? ""}`.trim() +
+            ` · ${info.plays} plays` +
+            (info.skipped ? ` · ${info.skipped} skipped` : ""),
           category: "music",
         } satisfies EvidenceItem;
       });
@@ -462,7 +473,7 @@ function buildSummary(
     evidenceByDay[dk].topTracks = top;
   }
 
-  // Household
+  // Household evidence: still needs date parse (no time info in data)
   for (let i = 0; i < householdRows.length; i++) {
     const r = householdRows[i];
     const d = parseDateLoose(r.Date);
@@ -478,7 +489,6 @@ function buildSummary(
     if (flow.includes("income")) ev.householdNet += amt;
     else if (flow.includes("expense")) ev.householdNet -= amt;
 
-    // bucket: household has no time -> afternoon
     const item: EvidenceItem = {
       id: `hh_${dk}_${i}`,
       bucket: "afternoon",
@@ -492,31 +502,30 @@ function buildSummary(
     if (ev.householdItems.length < 14) ev.householdItems.push(item);
   }
 
-  // Card
+  // Card evidence: reuse cached day/bucket/time (NO date parsing here)
   for (let i = 0; i < cardRows.length; i++) {
-    const r = cardRows[i];
-    const d = parseDateLoose(r.trans_date_trans_time);
-    if (!d) continue;
-    const dk = dayKey(d);
+    const dk = ccDay[i];
+    const b = ccBucket[i];
+    const t = ccTime[i];
+    if (!dk || !b || !t) continue;
     if (!topDayKeys.has(dk)) continue;
 
+    const r = cardRows[i];
     const ev = evidenceByDay[dk];
+
     ev.cardTx += 1;
 
     const amt = safeNum(r.amt);
     ev.cardSpend += amt;
 
-    const h = d.getHours();
-    const b = bucketFromHour(h);
     ev.cardByBucket[b] += 1;
 
     if (Number(String(r.is_fraud ?? "").trim()) === 1) ev.fraudCount += 1;
 
-    const timeLabel = `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
     const item: EvidenceItem = {
       id: `cc_${dk}_${i}`,
       bucket: b,
-      timeLabel,
+      timeLabel: t,
       title: (r.merchant || "Unknown merchant").trim(),
       meta: `${(r.category || "Uncategorized").trim()}` + (Number(String(r.is_fraud ?? "").trim()) === 1 ? " · flagged" : ""),
       amount: amt,
@@ -526,7 +535,7 @@ function buildSummary(
     if (ev.cardItems.length < 18) ev.cardItems.push(item);
   }
 
-  // streams present
+  // finalize streams present + rounding
   for (const k of topDayKeys) {
     const ev = evidenceByDay[k];
     const streams =
@@ -534,6 +543,7 @@ function buildSummary(
       (ev.householdTx > 0 ? 1 : 0) +
       (ev.cardTx > 0 ? 1 : 0);
     ev.streamsPresent = streams;
+
     ev.householdNet = Number(ev.householdNet.toFixed(2));
     ev.cardSpend = Number(ev.cardSpend.toFixed(2));
   }

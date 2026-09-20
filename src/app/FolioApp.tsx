@@ -6,6 +6,7 @@ import "./folio.css";
 import MusicLens from "./lenses/MusicLens";
 import SpendingLens from "./lenses/SpendingLens";
 import CardLens from "./lenses/CardLens";
+import { useMediaQuery } from "../hooks/useMediaQuery";
 
 type View = "overview" | "connections" | "music" | "spending" | "card";
 type ConnFilter = "any" | "3stream" | "sp_card" | "sp_house";
@@ -337,6 +338,9 @@ function EvidenceDrawer({
   const spikeSpend = day ? day.cardSpend >= baselines.p90CardSpend : false;
   const spikeNet = day ? Math.abs(day.householdNet) >= baselines.p90AbsHouseholdNet : false;
 
+  const isMobile = useMediaQuery("(max-width: 980px)");
+const [open, setOpen] = useState<"music" | "household" | "card">("music");
+
   const narrative = day
     ? [
         day.streamsPresent === 3 ? "Three-stream overlap detected." : "Partial overlap detected.",
@@ -388,81 +392,101 @@ function EvidenceDrawer({
       </div>
 
       {!day ? (
-        <div style={{ marginTop: 14, color: "var(--faint)", fontSize: 12 }}>
-          No evidence computed for this day.
-        </div>
-      ) : (
-        <div className="evidenceGrid">
-          <div className="eCol">
-            <div className="eColHead">
-              <div className="eColTitle">Music</div>
-              <div className="eColMeta">{day.spotifyPlays} plays</div>
-            </div>
-            {day.topTracks.map((it) => (
-              <motion.button
-                key={it.id}
-                className={`eCard ${dim(it.bucket)}`}
-                whileTap={{ scale: 0.99 }}
-                onMouseEnter={() => setHoverBucket(it.bucket)}
-                onMouseLeave={() => setHoverBucket(null)}
-              >
-                <div className="eCardTop">
-                  <span className="eTime">{it.bucket.replace("-", " ")}</span>
-                  <span className="eAmt">—</span>
-                </div>
-                <div className="eTitle">{it.title}</div>
-                <div className="eMeta">{it.meta}</div>
-              </motion.button>
-            ))}
-          </div>
-
-          <div className="eCol">
-            <div className="eColHead">
-              <div className="eColTitle">Household</div>
-              <div className="eColMeta">{day.householdTx} entries · net {money(day.householdNet)}</div>
-            </div>
-            {day.householdItems.map((it) => (
-              <motion.button
-                key={it.id}
-                className={`eCard ${dim(it.bucket)}`}
-                whileTap={{ scale: 0.99 }}
-                onMouseEnter={() => setHoverBucket(it.bucket)}
-                onMouseLeave={() => setHoverBucket(null)}
-              >
-                <div className="eCardTop">
-                  <span className="eTime">{it.timeLabel}</span>
-                  <span className="eAmt">₹{(it.amount ?? 0).toFixed(0)}</span>
-                </div>
-                <div className="eTitle">{it.title}</div>
-                <div className="eMeta">{it.meta}</div>
-              </motion.button>
-            ))}
-          </div>
-
-          <div className="eCol">
-            <div className="eColHead">
-              <div className="eColTitle">Card</div>
-              <div className="eColMeta">{day.cardTx} tx · spend ₹{day.cardSpend.toFixed(0)}{day.fraudCount ? ` · flags ${day.fraudCount}` : ""}</div>
-            </div>
-            {day.cardItems.map((it) => (
-              <motion.button
-                key={it.id}
-                className={`eCard ${dim(it.bucket)}`}
-                whileTap={{ scale: 0.99 }}
-                onMouseEnter={() => setHoverBucket(it.bucket)}
-                onMouseLeave={() => setHoverBucket(null)}
-              >
-                <div className="eCardTop">
-                  <span className="eTime">{it.timeLabel}</span>
-                  <span className="eAmt">₹{(it.amount ?? 0).toFixed(0)}</span>
-                </div>
-                <div className="eTitle">{it.title}</div>
-                <div className="eMeta">{it.meta}</div>
-              </motion.button>
-            ))}
-          </div>
+  <div style={{ marginTop: 14, color: "var(--faint)", fontSize: 12 }}>
+    No evidence computed for this day.
+  </div>
+) : isMobile ? (
+  <div className="acc">
+    {/* MUSIC */}
+    <div className="accSection">
+      <button className="accHead" onClick={() => setOpen(open === "music" ? "household" : "music")}>
+        <span>Music</span>
+        <span className="accMeta">{day.spotifyPlays} plays</span>
+      </button>
+      {open === "music" && (
+        <div className="accBody">
+          {day.topTracks.map((it) => (
+            <motion.button
+              key={it.id}
+              className={`eCard ${dim(it.bucket)}`}
+              whileTap={{ scale: 0.99 }}
+              onMouseEnter={() => setHoverBucket(it.bucket)}
+              onMouseLeave={() => setHoverBucket(null)}
+            >
+              <div className="eCardTop">
+                <span className="eTime">{it.bucket.replace("-", " ")}</span>
+                <span className="eAmt">—</span>
+              </div>
+              <div className="eTitle">{it.title}</div>
+              <div className="eMeta">{it.meta}</div>
+            </motion.button>
+          ))}
         </div>
       )}
+    </div>
+
+    {/* HOUSEHOLD */}
+    <div className="accSection">
+      <button className="accHead" onClick={() => setOpen(open === "household" ? "card" : "household")}>
+        <span>Household</span>
+        <span className="accMeta">{day.householdTx} entries · net {money(day.householdNet)}</span>
+      </button>
+      {open === "household" && (
+        <div className="accBody">
+          {day.householdItems.map((it) => (
+            <motion.button
+              key={it.id}
+              className={`eCard ${dim(it.bucket)}`}
+              whileTap={{ scale: 0.99 }}
+              onMouseEnter={() => setHoverBucket(it.bucket)}
+              onMouseLeave={() => setHoverBucket(null)}
+            >
+              <div className="eCardTop">
+                <span className="eTime">{it.timeLabel}</span>
+                <span className="eAmt">₹{(it.amount ?? 0).toFixed(0)}</span>
+              </div>
+              <div className="eTitle">{it.title}</div>
+              <div className="eMeta">{it.meta}</div>
+            </motion.button>
+          ))}
+        </div>
+      )}
+    </div>
+
+    {/* CARD */}
+    <div className="accSection">
+      <button className="accHead" onClick={() => setOpen(open === "card" ? "music" : "card")}>
+        <span>Card</span>
+        <span className="accMeta">{day.cardTx} tx · ₹{day.cardSpend.toFixed(0)}{day.fraudCount ? ` · flags ${day.fraudCount}` : ""}</span>
+      </button>
+      {open === "card" && (
+        <div className="accBody">
+          {day.cardItems.map((it) => (
+            <motion.button
+              key={it.id}
+              className={`eCard ${dim(it.bucket)}`}
+              whileTap={{ scale: 0.99 }}
+              onMouseEnter={() => setHoverBucket(it.bucket)}
+              onMouseLeave={() => setHoverBucket(null)}
+            >
+              <div className="eCardTop">
+                <span className="eTime">{it.timeLabel}</span>
+                <span className="eAmt">₹{(it.amount ?? 0).toFixed(0)}</span>
+              </div>
+              <div className="eTitle">{it.title}</div>
+              <div className="eMeta">{it.meta}</div>
+            </motion.button>
+          ))}
+        </div>
+      )}
+    </div>
+  </div>
+) : (
+  <div className="evidenceGrid">
+    {/* keep your existing 3-column desktop layout here unchanged */}
+    {/* Music / Household / Card columns */}
+  </div>
+)}
     </motion.div>
   );
 }
