@@ -83,7 +83,12 @@ Folio loads and visualizes three activity streams:
   - Computes aggregates once at load
   - Builds evidence only for top-ranked days (limits expensive lookups)
 
----
+## Screenshots
+
+![Landing](docs/landing page.png)
+![Connections](docs/connections.png)
+![Music](docs/music.png)
+![MobileView](docs/mobile view.png)
 
 ## Data Flow Diagrams (DFD)
 
