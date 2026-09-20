@@ -89,16 +89,3 @@ Folio loads and visualizes three activity streams:
 ![Connections](docs/connections.png)
 ![Music](docs/music.png)
 ![MobileView](docs/mobile view.png)
-
-## Data Flow Diagrams (DFD)
-
-### DFD Level 0 — Context Diagram
-
-```mermaid
-flowchart LR
-  U[User] -->|Search / Filter / Select Day / Hover| F[Folio (Frontend App)]
-  F -->|Evidence views + Narrative + KPIs| U
-
-  D1[(Spotify History CSV)] --> F
-  D2[(Household Transactions CSV)] --> F
-  D3[(Card Transactions TSV)] --> F
