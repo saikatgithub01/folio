@@ -1,0 +1,135 @@
+/* Landing — light brutalist but alive */
+
+.landingRoot{
+  position: relative;
+  min-height: 100vh;
+  isolation: isolate;
+}
+
+/* Subtle grid like “blueprint / evidence board” */
+.landingRoot::before{
+  content:"";
+  position:absolute;
+  inset:0;
+  z-index:-2;
+  background:
+    linear-gradient(to right, rgba(10,10,10,0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(10,10,10,0.04) 1px, transparent 1px);
+  background-size: 80px 80px;
+  pointer-events:none;
+}
+
+.spotlight{
+  position:absolute;
+  inset:0;
+  z-index:-1;
+  pointer-events:none;
+  background:
+    radial-gradient(
+      700px circle at var(--mx, 50%) var(--my, 20%),
+      rgba(10,10,10,0.10),
+      transparent 55%
+    );
+  mix-blend-mode: multiply;
+}
+
+.navLink{
+  position: relative;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  padding: 10px 10px;
+  border-radius: 999px;
+  transition: background 180ms var(--ease), transform 180ms var(--ease);
+}
+
+.navLink:hover{
+  background: rgba(10,10,10,0.06);
+  transform: translateY(-1px);
+}
+
+.navLink::after{
+  content:"";
+  position:absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 6px;
+  height: 2px;
+  background: var(--ink);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 240ms var(--ease);
+  opacity: 0.9;
+}
+
+.navLink:hover::after{
+  transform: scaleX(1);
+}
+
+.heroGrid{
+  display:grid;
+  grid-template-columns: 1.2fr 0.8fr;
+  gap: 36px;
+  align-items: center;
+}
+
+@media (max-width: 900px){
+  .heroGrid{ grid-template-columns: 1fr; }
+}
+
+.ctaBtn{
+  border: 2px solid var(--ink);
+  border-radius: 12px;
+  padding: 12px 16px;
+  font-weight: 900;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+}
+
+.ctaPrimary{
+  background: var(--ink);
+  color: #fff;
+}
+
+.ctaGhost{
+  background: transparent;
+  color: var(--ink);
+}
+
+.scrollHint{
+  margin-top: 18px;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  color: var(--faint);
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-size: 11px;
+}
+
+.scrollPill{
+  width: 26px;
+  height: 42px;
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  position: relative;
+}
+
+.scrollDot{
+  width: 6px;
+  height: 6px;
+  background: var(--ink);
+  border-radius: 50%;
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  top: 10px;
+  animation: scrollDot 1.4s var(--ease) infinite;
+}
+
+@keyframes scrollDot{
+  0%{ opacity: 0.2; transform: translateX(-50%) translateY(0); }
+  50%{ opacity: 1; }
+  100%{ opacity: 0.2; transform: translateX(-50%) translateY(16px); }
+}
